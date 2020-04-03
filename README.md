@@ -8,7 +8,7 @@ The intent of this workshop is to provide a hands-on look into OpenShift livenes
 * You have the OpenShift Client (`oc`) and `jq` installed.
 
 ## Creating the Sandbox
-While logged into an OpenShift cluster, run `oc new-app python~https://github.com/brandisher/openshift-probes-sandbox.git`.  If the python image stream is not available, you should be able use any image with Python 3.6+.
+While logged into an OpenShift cluster, run `oc new-app python~https://github.com/brandisher/openshift-probes-sandbox.git`.
 
 ## Deleting the Sandbox
 Run `oc delete all -l app=openshift-probes-sandbox` to delete all of the resources created for this specific app.
@@ -154,4 +154,19 @@ $ oc logs po/openshift-probes-sandbox-7-m4bzj
 10.129.0.1 - - [02/Apr/2020 20:17:31] code 400, message Bad request syntax ('\x16\x03\x01\x00Ð\x01\x00\x00Ì\x03\x03$\x15°\x99d¹\x82máÀï\x92[\x9f62\t\'\x8au\'AÁþK|\x9bÙ~"T\x86 éB\x18\x911\x8e«X\x84ç©1§\x134¥\x87\x9dY\x07ëÞs\x05_8hk\x11v¼¾\x00 À/À0À+À,Ì¨Ì©À\x13À\tÀ\x14À')
 10.129.0.1 - - [02/Apr/2020 20:17:31] "ÐÌ$°d¹máÀï[u'AÁþK|~"T éB1«X
                                                                   ç©1§4¥ëÞs_8hkv¼¾ À/À0À+À,Ì¨Ì©ÀÀ       ÀÀ" HTTPStatus.BAD_REQUEST -
+```
+
+### Failure due to slow application startup time
+
+Let's see what happens when we point the readiness probe at an endpoint with a 5 second startup delay.
+
+```
+ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/5s_delay
+deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
+```
+
+Now we check the events to see what the probe failure is:
+```
+$ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[] | select(.message | contains("probe failed")).message' | tail -n 1
+"Readiness probe failed: Get http://10.129.0.88:8080/5s_delay: net/http: request canceled (Client.Timeout exceeded while awaiting headers)"
 ```
