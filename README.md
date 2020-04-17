@@ -1,27 +1,21 @@
-# Openshift Liveness/Readiness Probes Workshop
-The intent of this workshop is to provide a hands-on look into OpenShift liveness/readiness probes.  It's laid out in a Q&A format that users can follow in order or jump around to specific questions like one would with reference material.
+# Openshift Probes Self-Led Workshop
+The intent of this workshop is to provide a hands-on look into OpenShift/Kubernetes probes.
 
-# Workshop Logistics
 ## Prerequisites
 * You have an OpenShift cluster with access to Github.
 * You have a namespace to create the sandbox in.
 * You have the OpenShift Client (`oc`) and `jq` installed.
 
-## Creating the Sandbox
+### Workarounds
+* If you do not have access to Github from your OpenShift cluster, then clone the repository locally and push it to your own registry.  You'll need to adjust the sandbox creation command to point to your mirrored repository.
+
+### Create the Sandbox
 While logged into an OpenShift cluster, run `oc new-app python~https://github.com/brandisher/openshift-probes-sandbox.git`.
 
-## Deleting the Sandbox
-Run `oc delete all -l app=openshift-probes-sandbox` to delete all of the resources created for this specific app.
+### Delete the Sandbox
+Run `oc delete all -l app=openshift-probes-sandbox` to delete all of the resources created for this specific app.  This can be done as a reset between testing each scenario or at the end of testing all of the scenarios as a clean up step.
 
-# Workshop
-
-## How do I create the sandbox?
-1. Login to your OpenShift cluster: `oc login`
-2. Switch to the project that you want to create the sandbox in: `oc project [project name]`
-3. Create the app with `oc new-app python~https://github.com/brandisher/openshift-probes-sandbox.git`
-
-### Workarounds
-* If you do not have access to Github from your OpenShift cluster, then clone the repository locally and push it to your own registry.
+# Start
 
 ## What does a successful readiness probe look like?
 First, let's start by creating a successful readiness probe.
@@ -79,6 +73,19 @@ $ oc logs pod/openshift-probes-sandbox-7-rzgjf
 10.129.0.1 - - [02/Apr/2020 18:15:17] "GET / HTTP/1.1" 200 -
 10.129.0.1 - - [02/Apr/2020 18:15:27] "GET / HTTP/1.1" 200 -
 ...
+```
+
+### Warning due to a redirect
+Technically, a probe will be considered a success of the HTTP response code is between 200 and 399 but a redirect will generate a probe warning event.
+
+```
+$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/redirect
+deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
+```
+Now check the events.
+```
+$ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[] | select(.message | contains("probe warning")).message' | tail -n 1
+"Readiness probe warning: <!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n<title>Redirecting...</title>\n<h1>Redirecting...</h1>\n<p>You should be redirected automatically to target URL: <a href=\"https://www.example.com\">https://www.example.com</a>.  If not click the link."
 ```
 
 ## What does a failing readiness probe look like?
@@ -161,7 +168,7 @@ $ oc logs po/openshift-probes-sandbox-7-m4bzj
 Let's see what happens when we point the readiness probe at an endpoint with a 5 second startup delay.
 
 ```
- oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/5s_delay
+$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/5s_delay
 deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
 ```
 
@@ -170,3 +177,26 @@ Now we check the events to see what the probe failure is:
 $ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[] | select(.message | contains("probe failed")).message' | tail -n 1
 "Readiness probe failed: Get http://10.129.0.88:8080/5s_delay: net/http: request canceled (Client.Timeout exceeded while awaiting headers)"
 ```
+
+To fix this slow startup time, we need to tell the kubelet to wait before attempting the initial probe by adding `--initial-delay-seconds=` to our probe definition.
+```
+oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/5s_delay --initial-delay-seconds=10
+```
+
+After the pod is redeployed, you'll notice that no intial probe error occurs and we see the requests show up normally in our pod logs.
+```
+$ oc logs po/openshift-probes-sandbox-11-s4vzh
+---> Running application from Python script (app.py) ...
+ * Serving Flask app "app" (lazy loading)
+ * Environment: production
+   WARNING: This is a development server. Do not use it in a production deployment.
+   Use a production WSGI server instead.
+ * Debug mode: off
+ * Running on http://0.0.0.0:8080/ (Press CTRL+C to quit)
+10.129.0.1 - - [03/Apr/2020 17:00:07] "GET /5s_delay HTTP/1.1" 200 -
+10.129.0.1 - - [03/Apr/2020 17:00:17] "GET /5s_delay HTTP/1.1" 200 -
+```
+
+## Next Steps
+* Put some of what you've learned to use in a real OpenShift environment!
+* If there are use cases you'd like covered here that aren't, open an issue to have them added!
