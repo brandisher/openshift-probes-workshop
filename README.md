@@ -3,17 +3,20 @@ The intent of this workshop is to provide a hands-on look into OpenShift/Kuberne
 
 ## Prerequisites
 * You have an OpenShift cluster with access to Github.
-* You have a namespace to create the sandbox in.
+* You have a namespace to create the workshop in.
 * You have the OpenShift Client (`oc`) and `jq` installed.
+  * [Install oc](https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/getting-started-cli.html#installing-the-cli)
+  * [Install jq](https://stedolan.github.io/jq/download/)
 
 ### Workarounds
-* If you do not have access to Github from your OpenShift cluster, then clone the repository locally and push it to your own registry.  You'll need to adjust the sandbox creation command to point to your mirrored repository.
+* If you do not have access to Github from your OpenShift cluster, then clone the repository locally and push it to your own registry.  You'll need to adjust the workshop creation command to point to your mirrored repository.
+* If you do not have access to the python image stream on OpenShift, you'll need to create your own image or use a python image that has python 3.6+ available.  Your image will need to run `pip install -r requirements.txt` and the command will be `python app.py`.
 
-### Create the Sandbox
-While logged into an OpenShift cluster, run `oc new-app python~https://github.com/brandisher/openshift-probes-sandbox.git`.
+### Create the workshop
+While logged into an OpenShift cluster, run `oc new-app python~https://github.com/brandisher/openshift-probes-workshop.git --name=workshop`.
 
-### Delete the Sandbox
-Run `oc delete all -l app=openshift-probes-sandbox` to delete all of the resources created for this specific app.  This can be done as a reset between testing each scenario or at the end of testing all of the scenarios as a clean up step.
+### Delete the workshop
+Run `oc delete all -l app=workshop` to delete all of the resources created for this specific app.  This can be done as a reset between testing each scenario or at the end of testing all of the scenarios as a clean up step.
 
 # Start
 
@@ -21,7 +24,7 @@ Run `oc delete all -l app=openshift-probes-sandbox` to delete all of the resourc
 First, let's start by creating a successful readiness probe.
 
 ```
-$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080
+$ oc set probe dc/workshop --readiness --get-url=http://:8080
 ```
 
 This will set the readiness probe to check `http://[pod IP]:8080` in the container defined in the deployment configuration.  The next step is to check the deploymentconfig to see what was actually created.
@@ -61,7 +64,7 @@ Openshift has some helpful defaults that may vary a bit depending on what versio
 Now that our readiness probe is configured and presumably successful, we need a way to confirm that its successful.  A succesful readiness probes won't generate events so `oc get events` won't help us here.  The easiest way to check is to grab the pod logs to see the HTTP requests being made and coming back with an HTTP 200 code.
 
 ```
-$ oc logs pod/openshift-probes-sandbox-7-rzgjf
+$ oc logs dc/workshop
 ---> Running application from Python script (app.py) ...
  * Serving Flask app "app" (lazy loading)
  * Environment: production
@@ -79,8 +82,8 @@ $ oc logs pod/openshift-probes-sandbox-7-rzgjf
 Technically, a probe will be considered a success of the HTTP response code is between 200 and 399 but a redirect will generate a probe warning event.
 
 ```
-$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/redirect
-deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
+$ oc set probe dc/workshop --readiness --get-url=http://:8080/redirect
+deploymentconfig.apps.openshift.io/workshop probes updated
 ```
 Now check the events.
 ```
@@ -95,8 +98,8 @@ There are several conditions that can cause a readiness probe to fail, so we'll 
 To test this, we'll need to break our probe and wait for the pod to restart.  For this test, we'll just change `:8080` to `:8081`.
 
 ```
-$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8081
-deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
+$ oc set probe dc/workshop --readiness --get-url=http://:8081
+deploymentconfig.apps.openshift.io/workshop probes updated
 ```
 
 The simplest way to check for the failure is to do `oc get events -w` and watch for the probe failures.  Depending on the number of cluster workloads you could have a lot of events to sift through so let's filter through the events based on their message.
@@ -106,10 +109,10 @@ $ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[]
 "Readiness probe failed: Get http://10.129.0.56:8081/: dial tcp 10.129.0.56:8081: connect: connection refused"
 ```
 
-Now we can see that the connection is being refused and generating an event.  because the connection is failing to establish, we don't see any logs in the pod.
+Now we can see that the connection is being refused and generating an event. Since the connection is failing to establish, we don't see any logs in the pod.
 
 ```
-$ oc logs po/openshift-probes-sandbox-3-pfnfv
+$ oc logs dc/workshop
 ---> Running application from Python script (app.py) ...
  * Serving Flask app "app" (lazy loading)
  * Environment: production
@@ -125,8 +128,8 @@ $ oc logs po/openshift-probes-sandbox-3-pfnfv
 To test this, we'll change our `--get-url` parameter from `http:` to `https:`
 
 ```
-$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=https://:8080
-deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
+$ oc set probe dc/workshop --readiness --get-url=https://:8080
+deploymentconfig.apps.openshift.io/workshop probes updated
 ```
 
 An event should be recorded for this failure, so let's check the most recent event.
@@ -140,7 +143,7 @@ $ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[]
 We see a TLS handshake error because this endpoint that we're checking doesn't have a certificate.  If we check the logs of the pod that's marked as Running but not ready yet, we'll see failure indications in the logs as well.
 
 ```
-$ oc logs po/openshift-probes-sandbox-7-m4bzj
+$ oc logs dc/workshop
 ---> Running application from Python script (app.py) ...
  * Serving Flask app "app" (lazy loading)
  * Environment: production
@@ -168,8 +171,8 @@ $ oc logs po/openshift-probes-sandbox-7-m4bzj
 Let's see what happens when we point the readiness probe at an endpoint with a 5 second startup delay.
 
 ```
-$ oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/5s_delay
-deploymentconfig.apps.openshift.io/openshift-probes-sandbox probes updated
+$ oc set probe dc/workshop --readiness --get-url=http://:8080/5s_delay
+deploymentconfig.apps.openshift.io/workshop probes updated
 ```
 
 Now we check the events to see what the probe failure is:
@@ -180,12 +183,12 @@ $ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[]
 
 To fix this slow startup time, we need to tell the kubelet to wait before attempting the initial probe by adding `--initial-delay-seconds=` to our probe definition.
 ```
-oc set probe dc/openshift-probes-sandbox --readiness --get-url=http://:8080/5s_delay --initial-delay-seconds=10
+oc set probe dc/workshop --readiness --get-url=http://:8080/5s_delay --initial-delay-seconds=10
 ```
 
 After the pod is redeployed, you'll notice that no intial probe error occurs and we see the requests show up normally in our pod logs.
 ```
-$ oc logs po/openshift-probes-sandbox-11-s4vzh
+$ oc logs dc/workshop
 ---> Running application from Python script (app.py) ...
  * Serving Flask app "app" (lazy loading)
  * Environment: production
