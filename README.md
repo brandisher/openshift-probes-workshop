@@ -181,9 +181,9 @@ $ oc get events -o json --sort-by='{.metadata.creationTimestamp}' | jq '.items[]
 "Readiness probe failed: Get http://10.129.0.88:8080/5s_delay: net/http: request canceled (Client.Timeout exceeded while awaiting headers)"
 ```
 
-To fix this slow startup time, we need to tell the kubelet to wait before attempting the initial probe by adding `--initial-delay-seconds=` to our probe definition.
+To fix this slow startup time, we need to tell the kubelet to wait before attempting the initial probe by adding `--initial-delay-seconds=` to our probe definition.  We have to also add `--timeout-seconds=15` to ensure that the probe won't timeout before its first run.
 ```
-oc set probe dc/workshop --readiness --get-url=http://:8080/5s_delay --initial-delay-seconds=10
+oc set probe dc/workshop --readiness --get-url=http://:8080/5s_delay --initial-delay-seconds=10 --timeout-seconds=15
 ```
 
 After the pod is redeployed, you'll notice that no intial probe error occurs and we see the requests show up normally in our pod logs.
